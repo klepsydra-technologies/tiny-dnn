@@ -33,41 +33,50 @@ inline void conv2d_op_internal(const tensor_t &in_data,
          for (size_t sample = r.begin(); sample < r.end(); sample++) {
            const vec_t &in = in_data[sample];
            vec_t &a        = out_data[sample];
-           for (size_t o = 0; o < od; o++) {
-             float_t *pa = &a[params.out.get_index(0, 0, o)];
-             for (size_t inc = 0; inc < id; inc++) {
-               if (!params.tbl.is_connected(o, inc)) continue;
-               size_t idx;
-               idx                = params.weight.get_index(0, 0, id * o + inc);
-               const float_t *pw  = &W[idx];
-               idx                = params.in_padded.get_index(0, 0, inc);
-               const float_t *pin = &in[idx];
-               float_t *pout      = pa;
-               for (size_t y = 0; y < oh; y++) {
-                 const float_t *pin_line = pin;
-                 for (size_t x = 0; x < ow; x++) {
-                   const float_t *pin_element = pin_line;
-                   const float_t *pw_element  = pw;
-                   float_t sum{0};
-                   // should be optimized for small kernel(3x3,5x5)
-                   for (size_t wy = 0; wy < kh; wy++) {    // NOLINT
-                     for (size_t wx = 0; wx < kw; wx++) {  // NOLINT
-                       sum += pw_element[wx] * pin_element[wx * w_dilation];
-                     }
-                     pw_element += kw;
-                     pin_element += iw * h_dilation;
+           for_ (
+               parallelize, 0, od,
+               [&](const blocked_range &o_range) {
+                   for (size_t o = o_range.begin(); o < o_range.end(); o++ ) {
+                       float_t *pa = &a[params.out.get_index(0, 0, o)];
+                       for_(
+                           parallelize, 0, id,
+                           [&](const blocked_range &inc_range)
+                       {
+                           for (size_t inc = inc_range.begin(); inc < inc_range.end(); inc++) {
+                           if (!params.tbl.is_connected(o, inc)) continue;
+                           size_t idx;
+                           idx                = params.weight.get_index(0, 0, id * o + inc);
+                           const float_t *pw  = &W[idx];
+                           idx                = params.in_padded.get_index(0, 0, inc);
+                           const float_t *pin = &in[idx];
+                           float_t *pout      = pa;
+                           for (size_t y = 0; y < oh; y++) {
+                               const float_t *pin_line = pin;
+                               for (size_t x = 0; x < ow; x++) {
+                                   const float_t *pin_element = pin_line;
+                                   const float_t *pw_element  = pw;
+                                   float_t sum{0};
+                                   // should be optimized for small kernel(3x3,5x5)
+                                   for (size_t wy = 0; wy < kh; wy++) {    // NOLINT
+                                       for(size_t wx = 0; wx < kw; wx++) {  // NOLINT
+                                           sum += pw_element[wx] * pin_element[wx * w_dilation];
+                                       }
+                                       pw_element += kw;
+                                       pin_element += iw * h_dilation;
+                                   }
+                                   pout[x] += sum;
+                                   pin_line += elem_stride;
+                               }
+                               pout += ow;
+                               pin += line_stride;
+                           }
+                       }
+                       }, 100u);
+                       if (params.has_bias) {
+                           vectorize::add(bias[o], out_area, pa);
+                       }
                    }
-                   pout[x] += sum;
-                   pin_line += elem_stride;
-                 }
-                 pout += ow;
-                 pin += line_stride;
-               }
-             }
-             if (params.has_bias) {
-               vectorize::add(bias[o], out_area, pa);
-             }
-           }
+               }, 100u);
          }
        },
        0u);
