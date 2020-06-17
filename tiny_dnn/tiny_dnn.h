@@ -51,6 +51,7 @@
 #include "tiny_dnn/layers/recurrent_layer.h"
 #include "tiny_dnn/layers/slice_layer.h"
 #include "tiny_dnn/layers/zero_pad_layer.h"
+#include "tiny_dnn/layers/linear_layer.h"
 
 #ifdef CNN_USE_GEMMLOWP
 #include "tiny_dnn/layers/quantized_fully_connected_layer.h"
